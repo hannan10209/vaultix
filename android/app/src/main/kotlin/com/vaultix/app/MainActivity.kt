@@ -38,13 +38,12 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "startLock" -> {
                     try {
-                        val packages = call.argument<List<String>>("packages") ?: emptyList()
+                        val newPackages = call.argument<List<String>>("packages") ?: emptyList()
                         val durationMinutes = call.argument<Int>("durationMinutes") ?: 0
                         val isHard = call.argument<Boolean>("isHard") ?: false
 
-                        // Resolve display names from package names
                         val pm = packageManager
-                        val appNames = packages.map { pkg ->
+                        val newAppNames = newPackages.map { pkg ->
                             try {
                                 val ai = pm.getApplicationInfo(pkg, 0)
                                 pm.getApplicationLabel(ai).toString()
@@ -53,26 +52,53 @@ class MainActivity : FlutterActivity() {
                             }
                         }
 
-                        val startTime = System.currentTimeMillis()
-                        val endTime = startTime + (durationMinutes * 60 * 1000L)
+                        // Merge with existing locked apps if a lock is already active
+                        val existingPackages = if (LockStateManager.isLockActive(this))
+                            LockStateManager.getLockedApps(this) else emptyList()
+                        val existingNames = if (LockStateManager.isLockActive(this))
+                            LockStateManager.getLockedAppNames(this) else emptyList()
 
-                        LockStateManager.setLockedApps(this, packages)
-                        LockStateManager.setLockedAppNames(this, appNames)
+                        val mergedPackages = existingPackages.toMutableList()
+                        val mergedNames = existingNames.toMutableList()
+                        for (i in newPackages.indices) {
+                            if (!mergedPackages.contains(newPackages[i])) {
+                                mergedPackages.add(newPackages[i])
+                                mergedNames.add(newAppNames[i])
+                            }
+                        }
+
+                        val startTime = System.currentTimeMillis()
+                        val newEndTime = startTime + (durationMinutes * 60 * 1000L)
+
+                        // Per-app end times: keep existing, add new
+                        val appEndTimes = LockStateManager.getAppEndTimes(this).toMutableMap()
+                        for (pkg in newPackages) {
+                            appEndTimes[pkg] = newEndTime
+                        }
+
+                        // Global end time = latest of all per-app end times
+                        val endTime = appEndTimes.values.maxOrNull() ?: newEndTime
+
+                        LockStateManager.setLockedApps(this, mergedPackages)
+                        LockStateManager.setLockedAppNames(this, mergedNames)
                         LockStateManager.setLockActive(this, true)
                         LockStateManager.setHardLock(this, isHard)
+                        if (LockStateManager.getLockStartTime(this) == 0L) {
+                            LockStateManager.saveLockStartTime(this, startTime)
+                        }
                         LockStateManager.saveLockEndTime(this, endTime)
+                        LockStateManager.setAppEndTimes(this, appEndTimes)
 
-                        // Record history entry (endEpoch 0 = still running)
                         LockStateManager.appendLockHistory(this, LockHistoryEntry(
-                            packageNames = packages,
-                            appNames = appNames,
+                            packageNames = newPackages,
+                            appNames = newAppNames,
                             startEpoch = startTime,
                             endEpoch = 0L,
                             wasHard = isHard,
                             wasInterrupted = false
                         ))
 
-                        VaultixForegroundService.start(this, appNames, endTime)
+                        VaultixForegroundService.start(this, mergedNames, endTime)
 
                         result.success(true)
                     } catch (e: Exception) {
@@ -84,10 +110,22 @@ class MainActivity : FlutterActivity() {
                     if (LockStateManager.isHardLock(this)) {
                         result.error("HARD_LOCK", "Cannot stop a hard lock before it expires", null)
                     } else {
-                        // Update history entry
-                        LockStateManager.updateLastHistoryEndTime(
-                            this, System.currentTimeMillis(), wasInterrupted = false
-                        )
+                        val hadOpenEntries = LockStateManager.completeAllOpenHistoryEntries(this)
+                        if (!hadOpenEntries) {
+                            val packages = LockStateManager.getLockedApps(this)
+                            val appNames = LockStateManager.getLockedAppNames(this)
+                            val startTime = LockStateManager.getLockStartTime(this)
+                            if (packages.isNotEmpty() && startTime > 0) {
+                                LockStateManager.appendLockHistory(this, LockHistoryEntry(
+                                    packageNames = packages,
+                                    appNames = appNames,
+                                    startEpoch = startTime,
+                                    endEpoch = System.currentTimeMillis(),
+                                    wasHard = false,
+                                    wasInterrupted = false
+                                ))
+                            }
+                        }
                         LockStateManager.setLockActive(this, false)
                         LockStateManager.clearAll(this)
                         VaultixForegroundService.stop(this)
@@ -96,12 +134,14 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "getLockStatus" -> {
+                    val appEndTimes = LockStateManager.getAppEndTimes(this)
                     val status = mapOf(
                         "isActive" to LockStateManager.isLockActive(this),
                         "isHard" to LockStateManager.isHardLock(this),
                         "lockedApps" to LockStateManager.getLockedApps(this),
                         "lockedAppNames" to LockStateManager.getLockedAppNames(this),
-                        "endTimeEpoch" to LockStateManager.getLockEndTime(this)
+                        "endTimeEpoch" to LockStateManager.getLockEndTime(this),
+                        "appEndTimes" to appEndTimes
                     )
                     result.success(status)
                 }
@@ -189,10 +229,7 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "clearHistory" -> {
-                    LockStateManager.setLockActive(this, false)
-                    LockStateManager.setLockedApps(this, emptyList())
-                    LockStateManager.setLockedAppNames(this, emptyList())
-                    LockStateManager.saveLockEndTime(this, 0L)
+                    LockStateManager.clearHistory(this)
                     result.success(true)
                 }
 
@@ -264,24 +301,27 @@ class MainActivity : FlutterActivity() {
 
     private fun getInstalledAppsList(): List<Map<String, String>> {
         val pm = packageManager
-        val installedApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        // Query all apps that have a launcher activity — these are the apps the user can open
+        val launcherIntent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val resolveInfos = pm.queryIntentActivities(launcherIntent, 0)
         val result = mutableListOf<Map<String, String>>()
+        val seen = mutableSetOf<String>()
 
-        for (appInfo in installedApps) {
-            val isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            if (isSystemApp && pm.getLaunchIntentForPackage(appInfo.packageName) == null) {
-                continue
-            }
-            // Skip ourselves
-            if (appInfo.packageName == packageName) continue
+        for (ri in resolveInfos) {
+            val pkg = ri.activityInfo.packageName
+            // Skip ourselves and duplicates
+            if (pkg == packageName) continue
+            if (!seen.add(pkg)) continue
 
-            val appName = pm.getApplicationLabel(appInfo).toString()
-            val iconDrawable = pm.getApplicationIcon(appInfo)
+            val appName = ri.loadLabel(pm).toString()
+            val iconDrawable = ri.loadIcon(pm)
             val iconBase64 = drawableToBase64(iconDrawable)
 
             result.add(
                 mapOf(
-                    "packageName" to appInfo.packageName,
+                    "packageName" to pkg,
                     "appName" to appName,
                     "icon" to iconBase64
                 )

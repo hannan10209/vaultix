@@ -139,7 +139,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         style: TextStyle(color: Colors.white)),
                   ),
                   TextButton(
-                    onPressed: () => context.push('/onboarding'),
+                    onPressed: () async {
+                      await context.push('/onboarding');
+                      _loadData();
+                    },
                     child: const Text('Fix',
                         style: TextStyle(color: Colors.white)),
                   ),
@@ -148,11 +151,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           Expanded(
             child: _lockStatus.isActive
-                ? Center(
-                    child: ActiveLockCard(
-                      status: _lockStatus,
-                      onUnlock: _lockStatus.isHard ? null : _unlock,
-                    ),
+                ? ActiveLockCard(
+                    status: _lockStatus,
+                    onUnlock: _lockStatus.isHard ? null : _unlock,
                   )
                 : Center(
                     child: Column(
@@ -177,16 +178,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       floatingActionButton: (_lockStatus.isActive && _lockStatus.isHard)
           ? null
           : FloatingActionButton(
-              onPressed: () => context.push('/new-lock'),
+              onPressed: () async {
+                await context.push('/new-lock');
+                _loadData();
+              },
               child: const Icon(Icons.lock),
             ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentTab,
-        onTap: (index) {
+        onTap: (index) async {
           if (index == 1) {
-            context.push('/history');
+            await context.push('/history');
+            _loadData();
           } else if (index == 2) {
-            context.push('/settings');
+            await context.push('/settings');
+            _loadData();
           } else {
             setState(() => _currentTab = index);
           }

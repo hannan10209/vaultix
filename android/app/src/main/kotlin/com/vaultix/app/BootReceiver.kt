@@ -14,10 +14,7 @@ class BootReceiver : BroadcastReceiver() {
 
             val endEpoch = LockStateManager.getLockEndTime(context)
             if (endEpoch <= System.currentTimeMillis()) {
-                // Lock has expired — record completed history entry
-                LockStateManager.updateLastHistoryEndTime(
-                    context, endEpoch, wasInterrupted = false
-                )
+                LockStateManager.completeAllOpenHistoryEntries(context)
                 LockStateManager.setLockActive(context, false)
                 LockStateManager.clearAll(context)
                 return

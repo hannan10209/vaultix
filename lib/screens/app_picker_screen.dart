@@ -78,10 +78,16 @@ class _AppPickerScreenState extends State<AppPickerScreen> {
                     itemBuilder: (context, index) {
                       final app = _filteredApps[index];
                       final isSelected = _selected.contains(app.packageName);
+                      final displayPkg = app.packageName
+                          .replaceFirst('com.google.android.', '')
+                          .replaceFirst('com.google.', '')
+                          .replaceFirst('com.android.', '')
+                          .replaceFirst('com.samsung.android.', '')
+                          .replaceFirst('com.sec.android.app.', '');
                       return ListTile(
                         leading: _buildIcon(app.iconBase64),
                         title: Text(app.appName),
-                        subtitle: Text(app.packageName,
+                        subtitle: Text(displayPkg,
                             style: TextStyle(
                                 fontSize: 12, color: Colors.grey.shade500)),
                         trailing: Checkbox(

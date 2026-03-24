@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/lock_channel.dart';
 
 class _PermissionStep {
@@ -132,7 +133,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               width: double.infinity,
               height: 48,
               child: FilledButton(
-                onPressed: _allGranted ? () => context.go('/home') : null,
+                onPressed: _allGranted ? () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('onboarding_completed', true);
+                  if (!context.mounted) return;
+                  context.go('/home');
+                } : null,
                 child: const Text('Continue to App'),
               ),
             ),

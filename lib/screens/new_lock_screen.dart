@@ -91,7 +91,7 @@ class _NewLockScreenState extends State<NewLockScreen> {
       isHard: _isHardLock,
     );
     if (!mounted) return;
-    context.go('/home');
+    context.pop();
   }
 
   @override

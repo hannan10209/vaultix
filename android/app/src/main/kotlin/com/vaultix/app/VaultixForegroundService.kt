@@ -48,7 +48,8 @@ class VaultixForegroundService : Service() {
     private val updateRunnable = object : Runnable {
         override fun run() {
             if (System.currentTimeMillis() >= lockEndEpoch) {
-                // Lock expired
+                // Lock expired — stamp all open history entries
+                LockStateManager.completeAllOpenHistoryEntries(this@VaultixForegroundService)
                 LockStateManager.setLockActive(this@VaultixForegroundService, false)
                 LockStateManager.clearAll(this@VaultixForegroundService)
                 stopSelf()

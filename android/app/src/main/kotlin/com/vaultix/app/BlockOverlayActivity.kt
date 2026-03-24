@@ -76,21 +76,21 @@ class BlockOverlayActivity : ComponentActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        // Consume — do nothing
+        goHome()
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        relaunchSelf()
+        finish()
     }
 
-    private fun relaunchSelf() {
-        val intent = Intent(this, BlockOverlayActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY)
-            putExtra("blocked_package", blockedPackage)
-            putExtra("is_hard_lock", isHardLock)
+    private fun goHome() {
+        val home = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        startActivity(intent)
+        startActivity(home)
+        finish()
     }
 }
 

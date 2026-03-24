@@ -53,6 +53,8 @@ object LockStateManager {
     private const val KEY_LOCK_ACTIVE = "lock_active"
     private const val KEY_HARD_LOCK = "hard_lock"
     private const val KEY_LOCK_END_TIME = "lock_end_time"
+    private const val KEY_APP_END_TIMES = "app_end_times"
+    private const val KEY_LOCK_START_TIME = "lock_start_time"
     private const val KEY_PIN_HASH = "vault_pin_hash"
     private const val KEY_LOCK_HISTORY = "lock_history"
     private const val MAX_HISTORY = 50
@@ -97,12 +99,38 @@ object LockStateManager {
         return prefs(context).getBoolean(KEY_HARD_LOCK, false)
     }
 
+    fun saveLockStartTime(context: Context, epochMillis: Long) {
+        prefs(context).edit().putLong(KEY_LOCK_START_TIME, epochMillis).apply()
+    }
+
+    fun getLockStartTime(context: Context): Long {
+        return prefs(context).getLong(KEY_LOCK_START_TIME, 0L)
+    }
+
     fun saveLockEndTime(context: Context, epochMillis: Long) {
         prefs(context).edit().putLong(KEY_LOCK_END_TIME, epochMillis).apply()
     }
 
     fun getLockEndTime(context: Context): Long {
         return prefs(context).getLong(KEY_LOCK_END_TIME, 0L)
+    }
+
+    fun setAppEndTimes(context: Context, appEndTimes: Map<String, Long>) {
+        val json = JSONObject()
+        for ((pkg, time) in appEndTimes) {
+            json.put(pkg, time)
+        }
+        prefs(context).edit().putString(KEY_APP_END_TIMES, json.toString()).apply()
+    }
+
+    fun getAppEndTimes(context: Context): Map<String, Long> {
+        val json = prefs(context).getString(KEY_APP_END_TIMES, "{}") ?: "{}"
+        val obj = JSONObject(json)
+        val map = mutableMapOf<String, Long>()
+        for (key in obj.keys()) {
+            map[key] = obj.getLong(key)
+        }
+        return map
     }
 
     fun clearAll(context: Context) {
@@ -161,18 +189,29 @@ object LockStateManager {
         prefs(context).edit().putString(KEY_LOCK_HISTORY, jsonArray.toString()).apply()
     }
 
-    fun updateLastHistoryEndTime(context: Context, endEpoch: Long, wasInterrupted: Boolean) {
+    fun clearHistory(context: Context) {
+        prefs(context).edit().remove(KEY_LOCK_HISTORY).apply()
+    }
+
+    fun completeAllOpenHistoryEntries(context: Context): Boolean {
         val history = getLockHistoryInternal(context).toMutableList()
-        if (history.isEmpty()) return
-        // Find last entry with endEpoch == 0
-        val idx = history.indexOfLast { it.endEpoch == 0L }
-        if (idx == -1) return
-        history[idx] = history[idx].copy(endEpoch = endEpoch, wasInterrupted = wasInterrupted)
+        var changed = false
+        for (i in history.indices) {
+            if (history[i].endEpoch == 0L) {
+                history[i] = history[i].copy(
+                    endEpoch = System.currentTimeMillis(),
+                    wasInterrupted = false
+                )
+                changed = true
+            }
+        }
+        if (!changed) return false
         val jsonArray = JSONArray()
         for (e in history) {
             jsonArray.put(e.toJson())
         }
         prefs(context).edit().putString(KEY_LOCK_HISTORY, jsonArray.toString()).apply()
+        return true
     }
 
     fun getLockHistory(context: Context): List<LockHistoryEntry> {

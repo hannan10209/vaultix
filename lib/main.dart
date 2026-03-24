@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/app_picker_screen.dart';
@@ -9,27 +10,22 @@ import 'screens/history_screen.dart';
 import 'services/lock_channel.dart';
 import 'theme/app_theme.dart';
 
-void main() {
-  runApp(const VaultixApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  final onboardingDone = prefs.getBool('onboarding_completed') ?? false;
+  runApp(VaultixApp(onboardingDone: onboardingDone));
 }
 
 class VaultixApp extends StatelessWidget {
-  const VaultixApp({super.key});
+  final bool onboardingDone;
+
+  const VaultixApp({super.key, required this.onboardingDone});
 
   @override
   Widget build(BuildContext context) {
     final router = GoRouter(
-      initialLocation: '/',
-      redirect: (context, state) async {
-        if (state.matchedLocation == '/') {
-          try {
-            final perms = await LockChannel().checkPermissions();
-            final allGranted = perms.values.every((v) => v == true);
-            if (allGranted) return '/home';
-          } catch (_) {}
-        }
-        return null;
-      },
+      initialLocation: onboardingDone ? '/home' : '/',
       routes: [
         GoRoute(
           path: '/',
