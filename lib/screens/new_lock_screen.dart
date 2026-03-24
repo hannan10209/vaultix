@@ -208,28 +208,31 @@ class _NewLockScreenState extends State<NewLockScreen> {
                 SizedBox(
                   height: 140,
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Expanded(child: _buildWheel(
+                      _wheelGroup(
                         controller: _hoursController,
                         itemCount: 24,
+                        label: 'h',
                         labelBuilder: (i) => i.toString().padLeft(2, '0'),
                         onChanged: (i) => setState(() => _hours = i),
-                      )),
-                      _wheelSeparator('h'),
-                      Expanded(child: _buildWheel(
+                      ),
+                      const SizedBox(width: 20),
+                      _wheelGroup(
                         controller: _minutesController,
                         itemCount: 60,
+                        label: 'm',
                         labelBuilder: (i) => i.toString().padLeft(2, '0'),
                         onChanged: (i) => setState(() => _minutes = i),
-                      )),
-                      _wheelSeparator('m'),
-                      Expanded(child: _buildWheel(
+                      ),
+                      const SizedBox(width: 20),
+                      _wheelGroup(
                         controller: _secondsController,
                         itemCount: 4,
+                        label: 's',
                         labelBuilder: (i) => (i * 15).toString().padLeft(2, '0'),
                         onChanged: (i) => setState(() => _seconds = i * 15),
-                      )),
-                      _wheelSeparator('s'),
+                      ),
                     ],
                   ),
                 ),
@@ -368,48 +371,53 @@ class _NewLockScreenState extends State<NewLockScreen> {
         ));
   }
 
-  Widget _buildWheel({
+  Widget _wheelGroup({
     required FixedExtentScrollController controller,
     required int itemCount,
+    required String label,
     required String Function(int) labelBuilder,
     required ValueChanged<int> onChanged,
   }) {
-    return ListWheelScrollView.useDelegate(
-      controller: controller,
-      itemExtent: 44,
-      diameterRatio: 1.4,
-      physics: const FixedExtentScrollPhysics(),
-      onSelectedItemChanged: onChanged,
-      childDelegate: ListWheelChildBuilderDelegate(
-        childCount: itemCount,
-        builder: (context, index) {
-          final isSelected = controller.hasClients &&
-              controller.selectedItem == index;
-          return Center(
-            child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style: TextStyle(
-                fontSize: isSelected ? 24 : 16,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w400,
-                color: isSelected ? Colors.white : Colors.grey.shade700,
-              ),
-              child: Text(labelBuilder(index)),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 56,
+          child: ListWheelScrollView.useDelegate(
+            controller: controller,
+            itemExtent: 44,
+            diameterRatio: 1.4,
+            physics: const FixedExtentScrollPhysics(),
+            onSelectedItemChanged: onChanged,
+            childDelegate: ListWheelChildBuilderDelegate(
+              childCount: itemCount,
+              builder: (context, index) {
+                final isSelected = controller.hasClients &&
+                    controller.selectedItem == index;
+                return Center(
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    style: TextStyle(
+                      fontSize: isSelected ? 24 : 16,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w400,
+                      color: isSelected ? Colors.white : Colors.grey.shade700,
+                    ),
+                    child: Text(labelBuilder(index)),
+                  ),
+                );
+              },
             ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _wheelSeparator(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Text(label,
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey.shade500,
-            fontWeight: FontWeight.w500,
-          )),
+          ),
+        ),
+        const SizedBox(width: 2),
+        Text(label,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade500,
+              fontWeight: FontWeight.w500,
+            )),
+      ],
     );
   }
 
