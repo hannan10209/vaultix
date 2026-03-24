@@ -70,6 +70,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  Future<bool> _unlockApp(String packageName) async {
+    try {
+      final pinRequired = await _lockChannel.hasPin();
+      if (pinRequired) {
+        if (!mounted) return false;
+        final verified = await _showPinDialog();
+        if (!verified) return false;
+      }
+      await _lockChannel.unlockApp(packageName);
+      await _loadData();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> _showPinDialog() async {
     final pinController = TextEditingController();
     final result = await showDialog<bool>(
@@ -154,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ? ActiveLockCard(
                     status: _lockStatus,
                     onUnlock: _lockStatus.isHard ? null : _unlock,
+                    onUnlockApp: _lockStatus.isHard ? null : _unlockApp,
                   )
                 : Center(
                     child: Column(

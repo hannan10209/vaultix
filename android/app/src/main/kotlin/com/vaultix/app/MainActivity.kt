@@ -133,6 +133,57 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "unlockApp" -> {
+                    val pkg = call.argument<String>("packageName") ?: ""
+                    if (LockStateManager.isHardLock(this)) {
+                        result.error("HARD_LOCK", "Cannot unlock a hard-locked app", null)
+                    } else if (pkg.isEmpty()) {
+                        result.error("INVALID", "No package name provided", null)
+                    } else {
+                        val packages = LockStateManager.getLockedApps(this).toMutableList()
+                        val names = LockStateManager.getLockedAppNames(this).toMutableList()
+                        val appEndTimes = LockStateManager.getAppEndTimes(this).toMutableMap()
+
+                        val idx = packages.indexOf(pkg)
+                        val appName = if (idx >= 0 && idx < names.size) names[idx] else pkg
+
+                        // Record history for this single app
+                        val startTime = LockStateManager.getLockStartTime(this)
+                        if (startTime > 0) {
+                            LockStateManager.appendLockHistory(this, LockHistoryEntry(
+                                packageNames = listOf(pkg),
+                                appNames = listOf(appName),
+                                startEpoch = startTime,
+                                endEpoch = System.currentTimeMillis(),
+                                wasHard = false,
+                                wasInterrupted = false
+                            ))
+                        }
+
+                        // Remove from locked lists
+                        if (idx >= 0) {
+                            packages.removeAt(idx)
+                            if (idx < names.size) names.removeAt(idx)
+                        }
+                        appEndTimes.remove(pkg)
+
+                        if (packages.isEmpty()) {
+                            // No more locked apps — clear everything
+                            LockStateManager.setLockActive(this, false)
+                            LockStateManager.clearAll(this)
+                            VaultixForegroundService.stop(this)
+                        } else {
+                            LockStateManager.setLockedApps(this, packages)
+                            LockStateManager.setLockedAppNames(this, names)
+                            LockStateManager.setAppEndTimes(this, appEndTimes)
+                            val newEnd = appEndTimes.values.maxOrNull() ?: 0L
+                            LockStateManager.saveLockEndTime(this, newEnd)
+                            VaultixForegroundService.start(this, names, newEnd)
+                        }
+                        result.success(true)
+                    }
+                }
+
                 "getLockStatus" -> {
                     val appEndTimes = LockStateManager.getAppEndTimes(this)
                     val status = mapOf(

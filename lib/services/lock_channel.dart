@@ -24,6 +24,13 @@ class LockChannel {
     return result == true;
   }
 
+  Future<bool> unlockApp(String packageName) async {
+    final result = await _channel.invokeMethod('unlockApp', {
+      'packageName': packageName,
+    });
+    return result == true;
+  }
+
   Future<LockStatus> getLockStatus() async {
     final result = await _channel.invokeMethod('getLockStatus');
     return LockStatus.fromMap(Map<String, dynamic>.from(result));

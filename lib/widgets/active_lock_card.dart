@@ -8,11 +8,13 @@ import '../services/lock_channel.dart';
 class ActiveLockCard extends StatefulWidget {
   final LockStatus status;
   final VoidCallback? onUnlock;
+  final Future<bool> Function(String packageName)? onUnlockApp;
 
   const ActiveLockCard({
     super.key,
     required this.status,
     this.onUnlock,
+    this.onUnlockApp,
   });
 
   @override
@@ -22,6 +24,7 @@ class ActiveLockCard extends StatefulWidget {
 class _ActiveLockCardState extends State<ActiveLockCard> {
   Timer? _timer;
   List<InstalledAppInfo> _appInfos = [];
+  String? _selectedPkg;
 
   @override
   void initState() {
@@ -38,6 +41,10 @@ class _ActiveLockCardState extends State<ActiveLockCard> {
     if (oldWidget.status.lockedApps.length != widget.status.lockedApps.length ||
         oldWidget.status.endTimeEpoch != widget.status.endTimeEpoch) {
       _loadAppIcons();
+      // Clear selection if the app was removed
+      if (_selectedPkg != null && !widget.status.lockedApps.contains(_selectedPkg)) {
+        _selectedPkg = null;
+      }
     }
   }
 
@@ -93,6 +100,60 @@ class _ActiveLockCardState extends State<ActiveLockCard> {
     );
   }
 
+  void _onLongPress(String pkg) {
+    if (widget.status.isHard) return;
+    setState(() {
+      _selectedPkg = _selectedPkg == pkg ? null : pkg;
+    });
+  }
+
+  void _onTap(String pkg) {
+    if (_selectedPkg != null) {
+      setState(() {
+        _selectedPkg = _selectedPkg == pkg ? null : pkg;
+      });
+    }
+  }
+
+  Future<void> _unlockSelected() async {
+    if (_selectedPkg == null || widget.onUnlockApp == null) return;
+    final pkg = _selectedPkg!;
+    final name = _getAppName(pkg);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unlock app?'),
+        content: Text('Are you sure you want to unlock $name?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Unlock'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final success = await widget.onUnlockApp!(pkg);
+    if (success && mounted) {
+      setState(() => _selectedPkg = null);
+    }
+  }
+
+  String _getAppName(String pkg) {
+    final idx = widget.status.lockedApps.indexOf(pkg);
+    if (idx >= 0 && idx < widget.status.lockedAppNames.length) {
+      return widget.status.lockedAppNames[idx];
+    }
+    return pkg;
+  }
+
   @override
   Widget build(BuildContext context) {
     final appCount = widget.status.lockedApps.length;
@@ -114,7 +175,16 @@ class _ActiveLockCardState extends State<ActiveLockCard> {
                 ),
               ),
               const Spacer(),
-              if (widget.status.isHard)
+              if (_selectedPkg != null && !widget.status.isHard)
+                TextButton.icon(
+                  onPressed: _unlockSelected,
+                  icon: const Icon(Icons.lock_open, size: 16),
+                  label: const Text('Unlock'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF7C3AED),
+                  ),
+                )
+              else if (widget.status.isHard)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -136,6 +206,14 @@ class _ActiveLockCardState extends State<ActiveLockCard> {
             ],
           ),
         ),
+        if (!widget.status.isHard)
+          Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 8),
+            child: Text(
+              _selectedPkg != null ? 'Tap another or unlock' : 'Hold to select an app',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          ),
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -147,76 +225,90 @@ class _ActiveLockCardState extends State<ActiveLockCard> {
                   : pkg;
               final appEnd = widget.status.endTimeForApp(pkg);
               final countdown = _formatCountdown(appEnd);
+              final isSelected = _selectedPkg == pkg;
 
-              return Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1C1C1E),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: accentColor.withValues(alpha: 0.3),
+              return GestureDetector(
+                onLongPress: () => _onLongPress(pkg),
+                onTap: () => _onTap(pkg),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFF7C3AED).withValues(alpha: 0.15)
+                        : const Color(0xFF1C1C1E),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isSelected
+                          ? const Color(0xFF7C3AED)
+                          : accentColor.withValues(alpha: 0.3),
+                      width: isSelected ? 2 : 1,
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    _buildAppIcon(pkg),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                  child: Row(
+                    children: [
+                      _buildAppIcon(pkg),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(Icons.timer_outlined, size: 14, color: accentColor),
+                                const SizedBox(width: 4),
+                                Text(
+                                  countdown,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: accentColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (isSelected)
+                        const Icon(Icons.check_circle, size: 22, color: Color(0xFF7C3AED))
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: accentColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          const SizedBox(height: 6),
-                          Row(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.timer_outlined, size: 14, color: accentColor),
+                              Icon(Icons.lock, size: 14, color: accentColor),
                               const SizedBox(width: 4),
                               Text(
-                                countdown,
+                                'Locked',
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                   color: accentColor,
                                 ),
                               ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.lock, size: 14, color: accentColor),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Locked',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: accentColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                        ),
+                    ],
+                  ),
                 ),
               );
             },
