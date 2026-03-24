@@ -39,7 +39,7 @@ class MainActivity : FlutterActivity() {
                 "startLock" -> {
                     try {
                         val newPackages = call.argument<List<String>>("packages") ?: emptyList()
-                        val durationMinutes = call.argument<Int>("durationMinutes") ?: 0
+                        val durationSeconds = call.argument<Int>("durationSeconds") ?: 0
                         val isHard = call.argument<Boolean>("isHard") ?: false
 
                         val pm = packageManager
@@ -68,7 +68,7 @@ class MainActivity : FlutterActivity() {
                         }
 
                         val startTime = System.currentTimeMillis()
-                        val newEndTime = startTime + (durationMinutes * 60 * 1000L)
+                        val newEndTime = startTime + (durationSeconds * 1000L)
 
                         // Per-app end times: keep existing, add new
                         val appEndTimes = LockStateManager.getAppEndTimes(this).toMutableMap()

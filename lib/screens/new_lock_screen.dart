@@ -21,41 +21,62 @@ class _NewLockScreenState extends State<NewLockScreen> {
   final List<_SelectedApp> _selectedApps = [];
   List<InstalledAppInfo>? _cachedApps;
 
-  // Duration
-  int? _selectedPresetIndex;
-  final List<int> _presetMinutes = [30, 60, 120, 240, 480];
-  final List<String> _presetLabels = [
-    '30 min',
-    '1 hr',
-    '2 hr',
-    '4 hr',
-    '8 hr',
-    'Custom'
-  ];
-  int _customHours = 0;
-  int _customMinutes = 30;
-  bool _isCustom = false;
+  // Duration wheels
+  late FixedExtentScrollController _hoursController;
+  late FixedExtentScrollController _minutesController;
+  late FixedExtentScrollController _secondsController;
+  int _hours = 0;
+  int _minutes = 30;
+  int _seconds = 0;
 
   // Lock type
   bool _isHardLock = false;
 
-  int get _durationMinutes {
-    if (_isCustom) return _customHours * 60 + _customMinutes;
-    if (_selectedPresetIndex != null &&
-        _selectedPresetIndex! < _presetMinutes.length) {
-      return _presetMinutes[_selectedPresetIndex!];
-    }
-    return 0;
-  }
+  // Presets in seconds
+  final List<int> _presetSeconds = [1800, 3600, 7200, 14400, 28800];
+  final List<String> _presetLabels = ['30m', '1h', '2h', '4h', '8h'];
 
-  bool get _canStart => _selectedApps.isNotEmpty && _durationMinutes > 0;
+  int get _totalSeconds => _hours * 3600 + _minutes * 60 + _seconds;
+  bool get _canStart => _selectedApps.isNotEmpty && _totalSeconds > 0;
 
   String get _endTimeText {
-    if (_durationMinutes == 0) return '';
-    final end = DateTime.now().add(Duration(minutes: _durationMinutes));
+    if (_totalSeconds == 0) return '';
+    final end = DateTime.now().add(Duration(seconds: _totalSeconds));
     final h = end.hour.toString().padLeft(2, '0');
     final m = end.minute.toString().padLeft(2, '0');
-    return 'Lock ends at $h:$m';
+    return 'Unlocks at $h:$m';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _hoursController = FixedExtentScrollController(initialItem: _hours);
+    _minutesController = FixedExtentScrollController(initialItem: _minutes);
+    _secondsController = FixedExtentScrollController(initialItem: _seconds ~/ 15);
+  }
+
+  @override
+  void dispose() {
+    _hoursController.dispose();
+    _minutesController.dispose();
+    _secondsController.dispose();
+    super.dispose();
+  }
+
+  void _applyPreset(int totalSec) {
+    final h = totalSec ~/ 3600;
+    final m = (totalSec % 3600) ~/ 60;
+    setState(() {
+      _hours = h;
+      _minutes = m;
+      _seconds = 0;
+    });
+    _hoursController.animateToItem(h,
+        duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    _minutesController.animateToItem(m,
+        duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    _secondsController.animateToItem(0,
+        duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   }
 
   Future<void> _pickApps() async {
@@ -64,10 +85,10 @@ class _NewLockScreenState extends State<NewLockScreen> {
 
     _cachedApps ??= await _lockChannel.getInstalledApps();
     final apps = _cachedApps!;
-    final newApps = <_SelectedApp>[];
+    final picked = <_SelectedApp>[];
     for (final pkg in result) {
       final match = apps.where((a) => a.packageName == pkg).firstOrNull;
-      newApps.add(_SelectedApp(
+      picked.add(_SelectedApp(
         packageName: pkg,
         appName: match?.appName ?? pkg,
       ));
@@ -75,7 +96,7 @@ class _NewLockScreenState extends State<NewLockScreen> {
 
     setState(() {
       final existing = _selectedApps.map((a) => a.packageName).toSet();
-      for (final app in newApps) {
+      for (final app in picked) {
         if (!existing.contains(app.packageName)) {
           _selectedApps.add(app);
         }
@@ -87,7 +108,7 @@ class _NewLockScreenState extends State<NewLockScreen> {
     final packages = _selectedApps.map((a) => a.packageName).toList();
     await _lockChannel.startLock(
       packages: packages,
-      durationMinutes: _durationMinutes,
+      durationSeconds: _totalSeconds,
       isHard: _isHardLock,
     );
     if (!mounted) return;
@@ -102,162 +123,210 @@ class _NewLockScreenState extends State<NewLockScreen> {
         centerTitle: true,
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
-          // ── SECTION 1: Select Apps ──
-          _sectionHeader('Select Apps'),
+          const SizedBox(height: 8),
+
+          // ── APPS ──
+          _sectionLabel('APPS'),
           const SizedBox(height: 8),
           if (_selectedApps.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text('No apps selected yet',
-                  style: TextStyle(color: Colors.grey.shade500)),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1C1E),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF2C2C2E)),
+              ),
+              child: Center(
+                child: Text('No apps selected',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+              ),
             )
           else
-            SizedBox(
-              height: 40,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: _selectedApps.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final app = _selectedApps[index];
-                  return Chip(
-                    label: Text(app.appName),
-                    deleteIcon: const Icon(Icons.close, size: 18),
-                    onDeleted: () {
-                      setState(() => _selectedApps.removeAt(index));
-                    },
-                  );
-                },
+            ...List.generate(_selectedApps.length, (index) {
+              final app = _selectedApps[index];
+              return Container(
+                margin: EdgeInsets.only(bottom: index < _selectedApps.length - 1 ? 6 : 0),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C1C1E),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF2C2C2E)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.apps, size: 20, color: Color(0xFF7C3AED)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(app.appName,
+                          style: const TextStyle(fontSize: 15, color: Colors.white)),
+                    ),
+                    GestureDetector(
+                      onTap: () => setState(() => _selectedApps.removeAt(index)),
+                      child: Icon(Icons.close, size: 18, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: _pickApps,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF7C3AED), width: 1.5),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add, size: 18, color: Color(0xFF7C3AED)),
+                  SizedBox(width: 6),
+                  Text('Add apps',
+                      style: TextStyle(color: Color(0xFF7C3AED), fontSize: 14, fontWeight: FontWeight.w600)),
+                ],
               ),
             ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _pickApps,
-            icon: const Icon(Icons.add),
-            label: const Text('Add apps'),
           ),
 
           const SizedBox(height: 24),
 
-          // ── SECTION 2: Lock Duration ──
-          _sectionHeader('Lock Duration'),
+          // ── DURATION ──
+          _sectionLabel('DURATION'),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Container(
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF2C2C2E)),
+            ),
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 140,
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildWheel(
+                        controller: _hoursController,
+                        itemCount: 24,
+                        labelBuilder: (i) => i.toString().padLeft(2, '0'),
+                        onChanged: (i) => setState(() => _hours = i),
+                      )),
+                      _wheelSeparator('h'),
+                      Expanded(child: _buildWheel(
+                        controller: _minutesController,
+                        itemCount: 60,
+                        labelBuilder: (i) => i.toString().padLeft(2, '0'),
+                        onChanged: (i) => setState(() => _minutes = i),
+                      )),
+                      _wheelSeparator('m'),
+                      Expanded(child: _buildWheel(
+                        controller: _secondsController,
+                        itemCount: 4,
+                        labelBuilder: (i) => (i * 15).toString().padLeft(2, '0'),
+                        onChanged: (i) => setState(() => _seconds = i * 15),
+                      )),
+                      _wheelSeparator('s'),
+                    ],
+                  ),
+                ),
+                if (_totalSeconds > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(_endTimeText,
+                        style: const TextStyle(color: Color(0xFF9F67FF), fontSize: 13)),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
             children: List.generate(_presetLabels.length, (index) {
-              final isPresetSelected =
-                  !_isCustom && _selectedPresetIndex == index;
-              final isCustomSelected = _isCustom && index == 5;
-              final selected = isPresetSelected || isCustomSelected;
-              return ChoiceChip(
-                label: Text(_presetLabels[index]),
-                selected: selected,
-                onSelected: (_) {
-                  setState(() {
-                    if (index == 5) {
-                      _isCustom = true;
-                      _selectedPresetIndex = null;
-                    } else {
-                      _isCustom = false;
-                      _selectedPresetIndex = index;
-                    }
-                  });
-                },
+              final isActive = _presetSeconds[index] == _totalSeconds;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => _applyPreset(_presetSeconds[index]),
+                  child: Container(
+                    margin: EdgeInsets.only(right: index < 4 ? 8 : 0),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isActive
+                          ? const Color(0xFF7C3AED)
+                          : const Color(0xFF1C1C1E),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isActive
+                            ? const Color(0xFF7C3AED)
+                            : const Color(0xFF2C2C2E),
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _presetLabels[index],
+                        style: TextStyle(
+                          color: isActive ? Colors.white : Colors.grey.shade400,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               );
             }),
           ),
-          if (_isCustom) ...[
-            const SizedBox(height: 12),
-            Row(
+
+          const SizedBox(height: 24),
+
+          // ── LOCK MODE ──
+          _sectionLabel('LOCK MODE'),
+          const SizedBox(height: 8),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _customHours,
-                    decoration: const InputDecoration(
-                      labelText: 'Hours',
-                    ),
-                    items: List.generate(24, (i) {
-                      return DropdownMenuItem(value: i, child: Text('$i'));
-                    }),
-                    onChanged: (v) => setState(() => _customHours = v ?? 0),
+                  child: _lockModeCard(
+                    icon: Icons.lock_open_rounded,
+                    title: 'Soft Lock',
+                    subtitle: 'Unlock anytime',
+                    selected: !_isHardLock,
+                    onTap: () => setState(() => _isHardLock = false),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _customMinutes,
-                    decoration: const InputDecoration(
-                      labelText: 'Minutes',
-                    ),
-                    items: List.generate(12, (i) {
-                      final v = i * 5;
-                      return DropdownMenuItem(value: v, child: Text('$v'));
-                    }),
-                    onChanged: (v) =>
-                        setState(() => _customMinutes = v ?? 0),
+                  child: _lockModeCard(
+                    icon: Icons.lock_rounded,
+                    title: 'Hard Lock',
+                    subtitle: 'Locked until timer ends',
+                    selected: _isHardLock,
+                    onTap: () => setState(() => _isHardLock = true),
                   ),
                 ),
               ],
             ),
-          ],
-          if (_durationMinutes > 0) ...[
-            const SizedBox(height: 8),
-            Text(_endTimeText,
-                style: const TextStyle(
-                    color: Color(0xFF636366), fontSize: 14)),
-          ],
-
-          const SizedBox(height: 24),
-
-          // ── SECTION 3: Lock Type ──
-          _sectionHeader('Lock Type'),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _lockTypeCard(
-                  icon: Icons.lock_open,
-                  title: 'Soft Lock',
-                  subtitle: 'Can be unlocked from settings',
-                  selected: !_isHardLock,
-                  onTap: () => setState(() => _isHardLock = false),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _lockTypeCard(
-                  icon: Icons.lock,
-                  title: 'Hard Lock',
-                  subtitle:
-                      'Cannot be unlocked until time expires or device restarts',
-                  selected: _isHardLock,
-                  onTap: () => setState(() => _isHardLock = true),
-                ),
-              ),
-            ],
           ),
           if (_isHardLock) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: const Color(0xFF3A1A00),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFFFF9500)),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded,
-                      color: Color(0xFFFF9500)),
-                  SizedBox(width: 12),
+                  Icon(Icons.warning_amber_rounded, color: Color(0xFFFF9500), size: 20),
+                  SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Hard lock cannot be reversed. Your phone must be restarted to break this lock early.',
-                      style:
-                          TextStyle(color: Color(0xFFFF9500), fontSize: 13),
+                      'Hard lock cannot be reversed. Restart your phone to break it early.',
+                      style: TextStyle(color: Color(0xFFFF9500), fontSize: 12),
                     ),
                   ),
                 ],
@@ -265,18 +334,23 @@ class _NewLockScreenState extends State<NewLockScreen> {
             ),
           ],
 
-          const SizedBox(height: 80),
+          const SizedBox(height: 100),
         ],
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: SizedBox(
             width: double.infinity,
-            height: 48,
+            height: 56,
             child: FilledButton(
               onPressed: _canStart ? _startLock : null,
-              child: const Text('Start Lock'),
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+              child: const Text('Start Lock',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ),
           ),
         ),
@@ -284,47 +358,96 @@ class _NewLockScreenState extends State<NewLockScreen> {
     );
   }
 
-  Widget _sectionHeader(String title) {
-    return Text(title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold));
+  Widget _sectionLabel(String text) {
+    return Text(text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: Colors.grey.shade500,
+          letterSpacing: 1.2,
+        ));
   }
 
-  Widget _lockTypeCard({
+  Widget _buildWheel({
+    required FixedExtentScrollController controller,
+    required int itemCount,
+    required String Function(int) labelBuilder,
+    required ValueChanged<int> onChanged,
+  }) {
+    return ListWheelScrollView.useDelegate(
+      controller: controller,
+      itemExtent: 44,
+      diameterRatio: 1.4,
+      physics: const FixedExtentScrollPhysics(),
+      onSelectedItemChanged: onChanged,
+      childDelegate: ListWheelChildBuilderDelegate(
+        childCount: itemCount,
+        builder: (context, index) {
+          final isSelected = controller.hasClients &&
+              controller.selectedItem == index;
+          return Center(
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
+              style: TextStyle(
+                fontSize: isSelected ? 24 : 16,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w400,
+                color: isSelected ? Colors.white : Colors.grey.shade700,
+              ),
+              child: Text(labelBuilder(index)),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _wheelSeparator(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(label,
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey.shade500,
+            fontWeight: FontWeight.w500,
+          )),
+    );
+  }
+
+  Widget _lockModeCard({
     required IconData icon,
     required String title,
     required String subtitle,
     required bool selected,
     required VoidCallback onTap,
   }) {
+    final accent = selected ? const Color(0xFF7C3AED) : const Color(0xFF636366);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          color: selected
+              ? const Color(0xFF7C3AED).withValues(alpha: 0.1)
+              : const Color(0xFF1C1C1E),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected
-                ? const Color(0xFF7C3AED)
-                : const Color(0xFF2C2C2E),
+            color: selected ? const Color(0xFF7C3AED) : const Color(0xFF2C2C2E),
             width: selected ? 2 : 1,
           ),
         ),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon,
-                size: 32,
-                color: selected
-                    ? const Color(0xFF7C3AED)
-                    : const Color(0xFF636366)),
-            const SizedBox(height: 8),
+            Icon(icon, size: 28, color: accent),
+            const SizedBox(height: 10),
             Text(title,
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 15)),
+                style: TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 15, color: selected ? Colors.white : Colors.grey.shade300)),
             const SizedBox(height: 4),
             Text(subtitle,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 11, color: Color(0xFF636366))),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
           ],
         ),
       ),

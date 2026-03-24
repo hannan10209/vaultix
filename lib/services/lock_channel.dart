@@ -8,12 +8,12 @@ class LockChannel {
 
   Future<bool> startLock({
     required List<String> packages,
-    required int durationMinutes,
+    required int durationSeconds,
     required bool isHard,
   }) async {
     final result = await _channel.invokeMethod('startLock', {
       'packages': packages,
-      'durationMinutes': durationMinutes,
+      'durationSeconds': durationSeconds,
       'isHard': isHard,
     });
     return result == true;
